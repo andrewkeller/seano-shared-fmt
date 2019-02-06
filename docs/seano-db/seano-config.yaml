@@ -1,0 +1,12 @@
+---
+# seano-config.yaml
+# seano configuration file
+#
+# This file is used both as a configuration for seano, and as a foundation for
+# the big fat Json file you get after running a seano query.  Any keys you set
+# here will show up in the root object of a query result, and may be consumed
+# by any views you're using to make presentable release notes.
+
+# Localized name of project:
+project_name:
+  en-US: QA Notes Seano Plugin
