@@ -33,7 +33,7 @@ def seano_cascade_hlist(notes, key):
         dst['children'].append(x)
         return x
     lst = {'children': []}
-    tag = 0 # Assuming notes are consistently ordered, tag text using a similarly consistent number
+    tag = -1 # Assuming notes are consistently ordered, tag text using a similarly consistent number
     for n in notes:
         tag = tag + 1 # Always increment tag; tag represents distinct yaml file, even if target audience is missing
         for bullet in (n.get(key, None) or {}).get('en-US', None) or []:
