@@ -8,12 +8,17 @@ output schema as simple as possible.  These functions don't create any new infor
 that doesn't already exist, but they do make existing information easier to access on-the-fly.
 """
 
+from .schema_plumbing import *
+
 
 def seano_paint_backstory_releases(releases, start):
     """
-    Edits the given releases list in-place, starting from the given start release name.
-    A member named `is-backstory` is added to each release, with a boolean value indicating
-    whether or not the release is part of a backstory.
+    Iterates over the given releases list, starting at the given start release name, and
+    progressing to all ancestors.  On every touched release, ``is-backstory`` is set to a boolean
+    value indicating whether or not the release is part of a backstory relative to the given start
+    release.
+
+    The releases list is edited in-place.
 
     The start release is assumed to not be a backstory.
 
@@ -34,3 +39,34 @@ def seano_paint_backstory_releases(releases, start):
             paint(ancestor, is_backstory)
 
     paint(start, False)
+
+
+def seano_paint_release_sys_limits(releases):
+    """
+    Iterates over the given releases list, propagating the min and max support OS fields
+    across the entire release ancestry.
+
+    The releases list is edited in-place.
+    """
+    fields = ['min-supported-os', 'max-supported-os']
+    seano_copy_note_fields_to_releases(releases, fields)
+    seano_propagate_sticky_release_fields(releases, fields)
+
+
+def seano_paint_release_risk_levels(releases):
+    """
+    Iterates over the given releases list, calculating the aggregate risk level for each
+    release based on data found in notes.
+
+    The releases list is edited in-place.
+    """
+    for release in releases:
+        if 'risk' in release:
+            continue
+        levels = [x.get('risk') for x in release['notes']]
+        for level in ['high', 'medium', 'low']:
+            if level in levels:
+                release['risk'] = level
+                break
+        else:
+            release['risk'] = '' if any([x != None for x in levels]) else None
