@@ -14,6 +14,51 @@ class SeanoSchemaPaintingException(Exception):
     pass
 
 
+def seano_minimum_release_list(bag, releases, ancestor_inheritance_cache=None):
+    """
+    Given a bag of release names and a set of releases, this function returns a minimum subset
+    of the bag that is transitively equivalent.
+
+    Parameters:
+
+    - ``bag`` (iterable of strings): The source list of release names
+    - ``releases`` (list or dict): The list or dict of all release definitions
+    - ``ancestor_inheritance_cache`` (dict): An optional dict used for caching
+
+    Returns: list of strings
+
+    IMPROVE: The ``ancestor_inheritance_cache`` parameter is a red flag that we need to put some
+    thought into improving performance in ``seano`` as a whole.  In particular, lots of operations
+    (such as this method) sometimes require deep traversals of the release ancestry graph, which
+    could be avoided with proper caching, and it's insane to expect the caller to manage our
+    cache storage.
+    """
+    if isinstance(releases, list):
+        releases = {r['name']: r for r in releases}
+
+    if not isinstance(ancestor_inheritance_cache, dict):
+        ancestor_inheritance_cache = {}
+
+    if not isinstance(bag, list):
+        bag = list(bag)
+
+    def get_ancestors(item):
+        try:
+            return ancestor_inheritance_cache[item]
+        except KeyError:
+            result = set([item]).union(*[get_ancestors(x['name']) for x in releases[item]['after']])
+            ancestor_inheritance_cache[item] = result
+            return result
+
+    if len(bag) > 1:
+        for item in bag:
+            smaller_bag = [x for x in bag if x != item]
+            if item in set().union(*[get_ancestors(x) for x in smaller_bag]):
+                bag = smaller_bag
+
+    return bag
+
+
 def seano_field_mergetool_opaque(does_privileged_base_exist, privileged_base, additions):
     """
     A merge tool used by some seano plumbing that performs a merge of an opaque type.
