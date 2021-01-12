@@ -14,46 +14,83 @@ class SeanoSchemaPaintingException(Exception):
     pass
 
 
-def seano_minimum_release_list(bag, releases, ancestor_inheritance_cache=None):
+def seano_release_ancestor_names_including_self(name, cdm):
     """
-    Given a bag of release names and a set of releases, this function returns a minimum subset
-    of the bag that is transitively equivalent.
+    Returns an unordered set of the names of all releases that are ancestors of the given release
+    name in the ancestry graph contained inside the given ``SeanoMetaCache`` (``cdm``) object,
+    including the given release name itself.
+
+    Parameters:
+
+    - ``name`` (string): The name of the release you're interested in
+    - ``cdm`` (``SeanoMetaCache``): A ``SeanoMetaCache`` object containing the release ancestry graph
+      that is pertinent to the release name with which you're inquiring
+
+    Returns: a set of release names (a set of strings)
+    """
+    try:
+        cache = cdm.ancestor_release_name_sets_including_self
+    except AttributeError:
+        cache = {}
+        cdm.ancestor_release_name_sets_including_self = cache
+    try:
+        return cache[name]
+    except KeyError:
+        result = set([name]).union(*[
+            seano_release_ancestor_names_including_self(x['name'], cdm) for x in cdm.named_releases[name]['after']
+        ])
+        cache[name] = result
+        return result
+
+
+def seano_release_descendant_names_including_self(name, cdm):
+    """
+    Returns an unordered set of the names of all releases that are descendants of the given release
+    name in the ancestry graph contained inside the given ``SeanoMetaCache`` (``cdm``) object,
+    including the given release name itself.
+
+    Parameters:
+
+    - ``name`` (string): The name of the release you're interested in
+    - ``cdm`` (``SeanoMetaCache``): A ``SeanoMetaCache`` object containing the release ancestry graph
+      that is pertinent to the release name with which you're inquiring
+
+    Returns: a set of release names (a set of strings)
+    """
+    try:
+        cache = cdm.descendant_release_name_sets_including_self
+    except AttributeError:
+        cache = {}
+        cdm.descendant_release_name_sets_including_self = cache
+    try:
+        return cache[name]
+    except KeyError:
+        result = set([name]).union(*[
+            seano_release_descendant_names_including_self(x['name'], cdm) for x in cdm.named_releases[name]['before']
+        ])
+        cache[name] = result
+        return result
+
+
+def seano_minimum_release_list(bag, cdm):
+    """
+    Given a bag of release names and a ``SeanoMetaCache`` (``cdm``) object containing a set of
+    releases this function returns a minimum subset of the bag that is transitively equivalent.
 
     Parameters:
 
     - ``bag`` (iterable of strings): The source list of release names
-    - ``releases`` (list or dict): The list or dict of all release definitions
-    - ``ancestor_inheritance_cache`` (dict): An optional dict used for caching
+    - ``cdm`` (``SeanoMetaCache``): A ``SeanoMetaCache`` containing a set of releases
 
     Returns: list of strings
-
-    IMPROVE: The ``ancestor_inheritance_cache`` parameter is a red flag that we need to put some
-    thought into improving performance in ``seano`` as a whole.  In particular, lots of operations
-    (such as this method) sometimes require deep traversals of the release ancestry graph, which
-    could be avoided with proper caching, and it's insane to expect the caller to manage our
-    cache storage.
     """
-    if isinstance(releases, list):
-        releases = {r['name']: r for r in releases}
-
-    if not isinstance(ancestor_inheritance_cache, dict):
-        ancestor_inheritance_cache = {}
-
     if not isinstance(bag, list):
         bag = list(bag)
-
-    def get_ancestors(item):
-        try:
-            return ancestor_inheritance_cache[item]
-        except KeyError:
-            result = set([item]).union(*[get_ancestors(x['name']) for x in releases[item]['after']])
-            ancestor_inheritance_cache[item] = result
-            return result
 
     if len(bag) > 1:
         for item in bag:
             smaller_bag = [x for x in bag if x != item]
-            if item in set().union(*[get_ancestors(x) for x in smaller_bag]):
+            if item in set().union(*[seano_release_ancestor_names_including_self(x, cdm) for x in smaller_bag]):
                 bag = smaller_bag
 
     return bag
@@ -87,16 +124,17 @@ def seano_field_mergetool_opaque(does_privileged_base_exist, privileged_base, ad
     return additions[0]
 
 
-def seano_copy_note_fields_to_releases(releases, fields):
+def seano_copy_note_fields_to_releases(cdm, fields):
     """
-    Iterates over the given releases list, copying from notes onto the each associated release
-    the fields and their values identified by the given list of fields.
+    Iterates over the releases list inside the given ``SeanoMetaCache`` (``cdm``) object, copying
+    from notes onto the each associated release the fields and their values identified by the given
+    list of fields.
 
     The given releases list is edited in-place.
 
     Inputs:
 
-    - ``releases`` (``list``): a seano release list
+    - ``cdm`` (``SeanoMetaCache``): a ``SeanoMetaCache`` object containing releases
     - ``fields`` (``list`` or ``dict``): a list of fields to copy from each note onto the
       respective releases, or a dictionary of fields to copy, associated with their merge
       tool functions
@@ -112,7 +150,7 @@ def seano_copy_note_fields_to_releases(releases, fields):
     if isinstance(fields, list):
         fields = {x: seano_field_mergetool_opaque for x in fields}
 
-    for r in releases:
+    for r in cdm.releases:
         for f in fields.keys():
             values = [n[f] for n in r['notes'] if f in n]
             if values:
@@ -140,16 +178,17 @@ this problem, you have two main choices:
                     raise
 
 
-def seano_propagate_sticky_release_fields(releases, fields):
+def seano_propagate_sticky_release_fields(cdm, fields):
     """
-    Iterates over the given releases list, copying from ancestor releases to descendant releases
-    the fields and their values identified by the given list of fields.
+    Iterates over the releases list inside the given ``SeanoMetaCache`` (``cdm``) object, copying
+    from ancestor releases to descendant releases the fields and their values identified by the
+    given list of fields.
 
     The given releases list is edited in-place.
 
     Inputs:
 
-    - ``releases`` (``list``): a seano release list
+    - ``cdm`` (``SeanoMetaCache``): a ``SeanoMetaCache`` object containing releases
     - ``fields`` (``list`` or ``dict``): a list of fields to copy from one release to the next,
       or a dictionary of fields to copy, associated with their merge tool functions
 
@@ -164,32 +203,6 @@ def seano_propagate_sticky_release_fields(releases, fields):
     if isinstance(fields, list):
         fields = {x: seano_field_mergetool_opaque for x in fields}
 
-    releases_lookup = {r['name']: r for r in releases}
-
-    _ancestor_inheritance = {}
-    def get_ancestor_inheritance(node):
-        try:
-            return _ancestor_inheritance[node]
-        except KeyError:
-            result = set([node]).union(*map(get_ancestor_inheritance,
-                                            [x['name'] for x in releases_lookup[node]['after']]))
-            _ancestor_inheritance[node] = result
-            return result
-
-    _non_transitive_parents = {}
-    def get_non_transitive_parents(node):
-        try:
-            return _non_transitive_parents[node]
-        except KeyError:
-            # Start with all ancestors:
-            result = [r['name'] for r in releases_lookup[node]['after']]
-            # Remove transitive ancestors:
-            for candidate in list(result):
-                if candidate in set().union(*[get_ancestor_inheritance(x) for x in result if x != candidate]):
-                    result.remove(candidate)
-            _non_transitive_parents[node] = result
-            return result
-
     _seen_releases = set()
     def process_release(release):
         if release['name'] in _seen_releases:
@@ -198,14 +211,20 @@ def seano_propagate_sticky_release_fields(releases, fields):
 
         # Process all parents first:
         for r in release['after']:
-            process_release(releases_lookup[r['name']])
+            process_release(cdm.named_releases[r['name']])
 
         # Copy each field from the parent release, one by one:
         for f in fields:
-            values = get_non_transitive_parents(release['name'])
-            values = [releases_lookup[r] for r in values]
+            # List all non-transitive immediate parents:
+            values = seano_minimum_release_list(bag=[x['name'] for x in release['after']], cdm=cdm)
+            # Convert release names to release objects:
+            values = [cdm.named_releases[r] for r in values]
+            # Fetch the value of the current field from each of the release objects, if set:
             values = [r[f] for r in values if f in r]
+            # If this field was set on any parent:
             if values:
+                # ... then copy the value to this release:
+                # (note that we may have to reconcile multiple values from multiple parent releases)
                 try:
                     release[f] = seano_field_mergetool_opaque(
                         does_privileged_base_exist=f in release,
@@ -226,5 +245,5 @@ on the {release} release, manually set the correctly merged value of
                     e.args = (msg,) + e.args[1:]
                     raise
 
-    for r in reversed(releases): # Not required, but reduces unnecessary recursion
+    for r in reversed(cdm.releases): # Not required, but reduces unnecessary recursion
         process_release(r)

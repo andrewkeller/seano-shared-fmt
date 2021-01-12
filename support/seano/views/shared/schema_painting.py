@@ -7,16 +7,15 @@ Functionality like this is deliberately not part of seano itself to help keep se
 output schema as simple as possible.  These functions don't create any new information
 that doesn't already exist, but they do make existing information easier to access on-the-fly.
 """
-
 from .schema_plumbing import *
 
 
-def seano_paint_backstory_releases(releases, start):
+def seano_paint_backstory_releases(cdm, start):
     """
-    Iterates over the given releases list, starting at the given start release name, and
-    progressing to all ancestors.  On every touched release, ``is-backstory`` is set to a boolean
-    value indicating whether or not the release is part of a backstory relative to the given start
-    release.
+    Iterates over the releases list in the given ``SeanoMetaCache`` (``cdm``) object, starting
+    at the given start release name, and progressing to all ancestors.  On every touched release,
+    ``is-backstory`` is set to a boolean value indicating whether or not the release is part of
+    a backstory relative to the given start release.
 
     The releases list is edited in-place.
 
@@ -25,13 +24,11 @@ def seano_paint_backstory_releases(releases, start):
     Releases descendant from the start release are not modified; this algorithm only operates
     on ancestors.
     """
-    releases_map = {x['name'] : x for x in releases}
-
     def paint(name, is_backstory):
 
-        releases_map[name]['is-backstory'] = is_backstory
+        cdm.named_releases[name]['is-backstory'] = is_backstory
 
-        ancestors = releases_map[name]['after']
+        ancestors = cdm.named_releases[name]['after']
 
         for ancestor in [x['name'] for x in ancestors if x.get('is-backstory', False)]:
             paint(ancestor, True)
@@ -41,26 +38,26 @@ def seano_paint_backstory_releases(releases, start):
     paint(start, False)
 
 
-def seano_paint_release_sys_limits(releases):
+def seano_paint_release_sys_limits(cdm):
     """
-    Iterates over the given releases list, propagating the min and max support OS fields
-    across the entire release ancestry.
+    Iterates over the releases list in the given ``SeanoMetaCache`` (``cdm``) object,
+    propagating the min and max support OS fields across the entire release ancestry.
 
     The releases list is edited in-place.
     """
     fields = ['min-supported-os', 'max-supported-os']
-    seano_copy_note_fields_to_releases(releases, fields)
-    seano_propagate_sticky_release_fields(releases, fields)
+    seano_copy_note_fields_to_releases(cdm, fields)
+    seano_propagate_sticky_release_fields(cdm, fields)
 
 
-def seano_paint_release_risk_levels(releases):
+def seano_paint_release_risk_levels(cdm):
     """
-    Iterates over the given releases list, calculating the aggregate risk level for each
-    release based on data found in notes.
+    Iterates over the releases list in the given ``SeanoMetaCache`` (``cdm``) object,
+    calculating the aggregate risk level for each release based on data found in notes.
 
     The releases list is edited in-place.
     """
-    for release in releases:
+    for release in cdm.releases:
         if 'risk' in release:
             continue
         levels = [x.get('risk') for x in release['notes']]
