@@ -10,9 +10,9 @@ that doesn't already exist, but they do make existing information easier to acce
 from .schema_plumbing import *
 
 
-def seano_paint_backstory_releases(cdm, start):
+def seano_paint_backstory_releases(cmc, start):
     """
-    Iterates over the releases list in the given ``SeanoMetaCache`` (``cdm``) object, starting
+    Iterates over the releases list in the given ``SeanoMetaCache`` (``cmc``) object, starting
     at the given start release name, and progressing to all ancestors.  On every touched release,
     ``is-backstory`` is set to a boolean value indicating whether or not the release is part of
     a backstory relative to the given start release.
@@ -26,9 +26,9 @@ def seano_paint_backstory_releases(cdm, start):
     """
     def paint(name, is_backstory):
 
-        cdm.named_releases[name]['is-backstory'] = is_backstory
+        cmc.named_releases[name]['is-backstory'] = is_backstory
 
-        ancestors = cdm.named_releases[name]['after']
+        ancestors = cmc.named_releases[name]['after']
 
         for ancestor in [x['name'] for x in ancestors if x.get('is-backstory', False)]:
             paint(ancestor, True)
@@ -38,26 +38,26 @@ def seano_paint_backstory_releases(cdm, start):
     paint(start, False)
 
 
-def seano_paint_release_sys_limits(cdm):
+def seano_paint_release_sys_limits(cmc):
     """
-    Iterates over the releases list in the given ``SeanoMetaCache`` (``cdm``) object,
+    Iterates over the releases list in the given ``SeanoMetaCache`` (``cmc``) object,
     propagating the min and max support OS fields across the entire release ancestry.
 
     The releases list is edited in-place.
     """
     fields = ['min-supported-os', 'max-supported-os']
-    seano_copy_note_fields_to_releases(cdm, fields)
-    seano_propagate_sticky_release_fields(cdm, fields)
+    seano_copy_note_fields_to_releases(cmc, fields)
+    seano_propagate_sticky_release_fields(cmc, fields)
 
 
-def seano_paint_release_risk_levels(cdm):
+def seano_paint_release_risk_levels(cmc):
     """
-    Iterates over the releases list in the given ``SeanoMetaCache`` (``cdm``) object,
+    Iterates over the releases list in the given ``SeanoMetaCache`` (``cmc``) object,
     calculating the aggregate risk level for each release based on data found in notes.
 
     The releases list is edited in-place.
     """
-    for release in cdm.releases:
+    for release in cmc.releases:
         if 'risk' in release:
             continue
         levels = [x.get('risk') for x in release['notes']]

@@ -14,73 +14,73 @@ class SeanoSchemaPaintingException(Exception):
     pass
 
 
-def seano_release_ancestor_names_including_self(name, cdm):
+def seano_release_ancestor_names_including_self(name, cmc):
     """
     Returns an unordered set of the names of all releases that are ancestors of the given release
-    name in the ancestry graph contained inside the given ``SeanoMetaCache`` (``cdm``) object,
+    name in the ancestry graph contained inside the given ``SeanoMetaCache`` (``cmc``) object,
     including the given release name itself.
 
     Parameters:
 
     - ``name`` (string): The name of the release you're interested in
-    - ``cdm`` (``SeanoMetaCache``): A ``SeanoMetaCache`` object containing the release ancestry graph
+    - ``cmc`` (``SeanoMetaCache``): A ``SeanoMetaCache`` object containing the release ancestry graph
       that is pertinent to the release name with which you're inquiring
 
     Returns: a set of release names (a set of strings)
     """
     try:
-        cache = cdm.ancestor_release_name_sets_including_self
+        cache = cmc.ancestor_release_name_sets_including_self
     except AttributeError:
         cache = {}
-        cdm.ancestor_release_name_sets_including_self = cache
+        cmc.ancestor_release_name_sets_including_self = cache
     try:
         return cache[name]
     except KeyError:
         result = set([name]).union(*[
-            seano_release_ancestor_names_including_self(x['name'], cdm) for x in cdm.named_releases[name]['after']
+            seano_release_ancestor_names_including_self(x['name'], cmc) for x in cmc.named_releases[name]['after']
         ])
         cache[name] = result
         return result
 
 
-def seano_release_descendant_names_including_self(name, cdm):
+def seano_release_descendant_names_including_self(name, cmc):
     """
     Returns an unordered set of the names of all releases that are descendants of the given release
-    name in the ancestry graph contained inside the given ``SeanoMetaCache`` (``cdm``) object,
+    name in the ancestry graph contained inside the given ``SeanoMetaCache`` (``cmc``) object,
     including the given release name itself.
 
     Parameters:
 
     - ``name`` (string): The name of the release you're interested in
-    - ``cdm`` (``SeanoMetaCache``): A ``SeanoMetaCache`` object containing the release ancestry graph
+    - ``cmc`` (``SeanoMetaCache``): A ``SeanoMetaCache`` object containing the release ancestry graph
       that is pertinent to the release name with which you're inquiring
 
     Returns: a set of release names (a set of strings)
     """
     try:
-        cache = cdm.descendant_release_name_sets_including_self
+        cache = cmc.descendant_release_name_sets_including_self
     except AttributeError:
         cache = {}
-        cdm.descendant_release_name_sets_including_self = cache
+        cmc.descendant_release_name_sets_including_self = cache
     try:
         return cache[name]
     except KeyError:
         result = set([name]).union(*[
-            seano_release_descendant_names_including_self(x['name'], cdm) for x in cdm.named_releases[name]['before']
+            seano_release_descendant_names_including_self(x['name'], cmc) for x in cmc.named_releases[name]['before']
         ])
         cache[name] = result
         return result
 
 
-def seano_minimum_release_list(bag, cdm):
+def seano_minimum_release_list(bag, cmc):
     """
-    Given a bag of release names and a ``SeanoMetaCache`` (``cdm``) object containing a set of
+    Given a bag of release names and a ``SeanoMetaCache`` (``cmc``) object containing a set of
     releases this function returns a minimum subset of the bag that is transitively equivalent.
 
     Parameters:
 
     - ``bag`` (iterable of strings): The source list of release names
-    - ``cdm`` (``SeanoMetaCache``): A ``SeanoMetaCache`` containing a set of releases
+    - ``cmc`` (``SeanoMetaCache``): A ``SeanoMetaCache`` containing a set of releases
 
     Returns: list of strings
     """
@@ -90,7 +90,7 @@ def seano_minimum_release_list(bag, cdm):
     if len(bag) > 1:
         for item in bag:
             smaller_bag = [x for x in bag if x != item]
-            if item in set().union(*[seano_release_ancestor_names_including_self(x, cdm) for x in smaller_bag]):
+            if item in set().union(*[seano_release_ancestor_names_including_self(x, cmc) for x in smaller_bag]):
                 bag = smaller_bag
 
     return bag
@@ -124,9 +124,9 @@ def seano_field_mergetool_opaque(does_privileged_base_exist, privileged_base, ad
     return additions[0]
 
 
-def seano_copy_note_fields_to_releases(cdm, fields):
+def seano_copy_note_fields_to_releases(cmc, fields):
     """
-    Iterates over the releases list inside the given ``SeanoMetaCache`` (``cdm``) object, copying
+    Iterates over the releases list inside the given ``SeanoMetaCache`` (``cmc``) object, copying
     from notes onto the each associated release the fields and their values identified by the given
     list of fields.
 
@@ -134,7 +134,7 @@ def seano_copy_note_fields_to_releases(cdm, fields):
 
     Inputs:
 
-    - ``cdm`` (``SeanoMetaCache``): a ``SeanoMetaCache`` object containing releases
+    - ``cmc`` (``SeanoMetaCache``): a ``SeanoMetaCache`` object containing releases
     - ``fields`` (``list`` or ``dict``): a list of fields to copy from each note onto the
       respective releases, or a dictionary of fields to copy, associated with their merge
       tool functions
@@ -150,7 +150,7 @@ def seano_copy_note_fields_to_releases(cdm, fields):
     if isinstance(fields, list):
         fields = {x: seano_field_mergetool_opaque for x in fields}
 
-    for r in cdm.releases:
+    for r in cmc.releases:
         for f in fields.keys():
             values = [n[f] for n in r['notes'] if f in n]
             if values:
@@ -178,9 +178,9 @@ this problem, you have two main choices:
                     raise
 
 
-def seano_propagate_sticky_release_fields(cdm, fields):
+def seano_propagate_sticky_release_fields(cmc, fields):
     """
-    Iterates over the releases list inside the given ``SeanoMetaCache`` (``cdm``) object, copying
+    Iterates over the releases list inside the given ``SeanoMetaCache`` (``cmc``) object, copying
     from ancestor releases to descendant releases the fields and their values identified by the
     given list of fields.
 
@@ -188,7 +188,7 @@ def seano_propagate_sticky_release_fields(cdm, fields):
 
     Inputs:
 
-    - ``cdm`` (``SeanoMetaCache``): a ``SeanoMetaCache`` object containing releases
+    - ``cmc`` (``SeanoMetaCache``): a ``SeanoMetaCache`` object containing releases
     - ``fields`` (``list`` or ``dict``): a list of fields to copy from one release to the next,
       or a dictionary of fields to copy, associated with their merge tool functions
 
@@ -211,14 +211,14 @@ def seano_propagate_sticky_release_fields(cdm, fields):
 
         # Process all parents first:
         for r in release['after']:
-            process_release(cdm.named_releases[r['name']])
+            process_release(cmc.named_releases[r['name']])
 
         # Copy each field from the parent release, one by one:
         for f in fields:
             # List all non-transitive immediate parents:
-            values = seano_minimum_release_list(bag=[x['name'] for x in release['after']], cdm=cdm)
+            values = seano_minimum_release_list(bag=[x['name'] for x in release['after']], cmc=cmc)
             # Convert release names to release objects:
-            values = [cdm.named_releases[r] for r in values]
+            values = [cmc.named_releases[r] for r in values]
             # Fetch the value of the current field from each of the release objects, if set:
             values = [r[f] for r in values if f in r]
             # If this field was set on any parent:
@@ -245,5 +245,5 @@ on the {release} release, manually set the correctly merged value of
                     e.args = (msg,) + e.args[1:]
                     raise
 
-    for r in reversed(cdm.releases): # Not required, but reduces unnecessary recursion
+    for r in reversed(cmc.releases): # Not required, but reduces unnecessary recursion
         process_release(r)
