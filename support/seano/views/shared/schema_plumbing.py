@@ -72,17 +72,18 @@ def seano_release_descendant_names_including_self(name, cmc):
         return result
 
 
-def seano_minimum_release_list(bag, cmc):
+def seano_minimum_descendant_list(bag, cmc):
     """
-    Given a bag of release names and a ``SeanoMetaCache`` (``cmc``) object containing a set of
-    releases this function returns a minimum subset of the bag that is transitively equivalent.
+    Given a bag of release names (S) and a ``SeanoMetaCache`` (``cmc``) object containing a set of
+    releases, this function returns a subset of S (M) where no release in M is an ancestor of any
+    release in M.
 
     Parameters:
 
     - ``bag`` (iterable of strings): The source list of release names
     - ``cmc`` (``SeanoMetaCache``): A ``SeanoMetaCache`` containing a set of releases
 
-    Returns: list of strings
+    Returns: list of release names (list of strings)
     """
     if not isinstance(bag, list):
         bag = list(bag)
@@ -216,7 +217,7 @@ def seano_propagate_sticky_release_fields(cmc, fields):
         # Copy each field from the parent release, one by one:
         for f in fields:
             # List all non-transitive immediate parents:
-            values = seano_minimum_release_list(bag=[x['name'] for x in release['after']], cmc=cmc)
+            values = seano_minimum_descendant_list(bag=[x['name'] for x in release['after']], cmc=cmc)
             # Convert release names to release objects:
             values = [cmc.named_releases[r] for r in values]
             # Fetch the value of the current field from each of the release objects, if set:
