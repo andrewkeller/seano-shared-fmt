@@ -72,6 +72,33 @@ def seano_release_descendant_names_including_self(name, cmc):
         return result
 
 
+def seano_minimum_ancestor_list(bag, cmc):
+    """
+    Given a bag of release names (S) and a ``SeanoMetaCache`` (``cmc``) object containing a set of
+    releases, this function returns a subset of S (M) where no release in M is a descendant of any
+    release in M.
+
+    Parameters:
+
+    - ``bag`` (iterable of strings): The source list of release names
+    - ``cmc`` (``SeanoMetaCache``): A ``SeanoMetaCache`` containing a set of releases
+
+    Returns: list of release names (list of strings)
+    """
+    if not isinstance(bag, list):
+        bag = list(bag)
+
+    for item in bag:
+        if len(bag) < 2:
+            # It's no longer possible to remove any elements
+            break
+        smaller_bag = [x for x in bag if x != item]
+        if item in set().union(*[seano_release_descendant_names_including_self(x, cmc) for x in smaller_bag]):
+            bag = smaller_bag
+
+    return bag
+
+
 def seano_minimum_descendant_list(bag, cmc):
     """
     Given a bag of release names (S) and a ``SeanoMetaCache`` (``cmc``) object containing a set of
@@ -88,11 +115,13 @@ def seano_minimum_descendant_list(bag, cmc):
     if not isinstance(bag, list):
         bag = list(bag)
 
-    if len(bag) > 1:
-        for item in bag:
-            smaller_bag = [x for x in bag if x != item]
-            if item in set().union(*[seano_release_ancestor_names_including_self(x, cmc) for x in smaller_bag]):
-                bag = smaller_bag
+    for item in bag:
+        if len(bag) < 2:
+            # It's no longer possible to remove any elements
+            break
+        smaller_bag = [x for x in bag if x != item]
+        if item in set().union(*[seano_release_ancestor_names_including_self(x, cmc) for x in smaller_bag]):
+            bag = smaller_bag
 
     return bag
 
