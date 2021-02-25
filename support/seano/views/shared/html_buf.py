@@ -3,8 +3,7 @@ support/seano/views/shared/html_buf.py
 
 Infrastructure to help build HTML files
 """
-import sys
-import tempfile
+from .text_buf import FencedTextBuffer
 
 try:
     from html import escape as _html_escape_func # correct on python 3; explodes on python 2
@@ -35,36 +34,6 @@ class SeanoHtmlFragment(object):
     __nonzero__ = __bool__
 
 
-def to_ascii(txt):
-    # ABK: Pylint can't read this if statement, and complains about `unicode` not existing in Python 3.
-    if sys.hexversion >= 0x3000000:
-        if isinstance(txt, bytes):
-            return txt
-        if isinstance(txt, str):
-            return txt.encode('utf-8')
-        return str(txt).encode('utf-8')
-    if isinstance(txt, str):
-        return txt
-    if isinstance(txt, unicode): #pylint: disable=E0602
-        return txt.encode('utf-8')
-    return str(txt)
-
-
-def to_unicode(txt):
-    # ABK: Pylint can't read this if statement, and complains about `unicode` not existing in Python 3.
-    if sys.hexversion >= 0x3000000:
-        if isinstance(txt, bytes):
-            return txt.decode('utf-8')
-        if isinstance(txt, str):
-            return txt
-        return str(txt)
-    if isinstance(txt, str):
-        return txt.decode('utf-8')
-    if isinstance(txt, unicode): #pylint: disable=E0602
-        return txt
-    return unicode(txt) #pylint: disable=E0602
-
-
 class SeanoHtmlBuffer(object):
     '''
     Helps you write a single-file HTML file, in a world where:
@@ -89,20 +58,11 @@ class SeanoHtmlBuffer(object):
         - UTF-8 character encoding declaration
         - Mobile-friendly viewport declaration
         '''
-        self.doc_prefix = '<html>'
-        self.doc_suffix = '</html>'
-        self.head_prefix = '<head>'
-        self.head = tempfile.TemporaryFile()
-        self.head_suffix = '</head>'
-        self.css_prefix = '<style type="text/css">'
-        self.css = tempfile.TemporaryFile()
-        self.css_suffix = '</style>'
-        self.js_prefix = '<script>'
-        self.js = tempfile.TemporaryFile() #pylint: disable=C0103
-        self.js_suffix = '</script>'
-        self.body_prefix = '<body>'
-        self.body = tempfile.TemporaryFile()
-        self.body_suffix = '</body>'
+        self.doc = FencedTextBuffer(prefix='<html>', suffix='</html>')
+        self.head = FencedTextBuffer(prefix='<head>', suffix='</head>', skip_fences_when_body_empty=True)
+        self.css = FencedTextBuffer(prefix='<style type="text/css">', suffix='</style>', skip_fences_when_body_empty=True) #pylint: disable=C0301
+        self.js = FencedTextBuffer(prefix='<script>', suffix='</script>', skip_fences_when_body_empty=True) #pylint: disable=C0103
+        self.body = FencedTextBuffer(prefix='<body>', suffix='</body>')
 
         self.write_head('''<meta charset="utf-8">''')
         self.write_head('''<meta name="viewport" content="width=device-width, initial-scale=1.0">''')
@@ -112,6 +72,7 @@ class SeanoHtmlBuffer(object):
         For compatibility with ``with``.  We have nothing special to do ourselves, but we should forward this notice to
         each of the file buffers.
         '''
+        self.doc.__enter__()
         self.head.__enter__()
         self.css.__enter__()
         self.js.__enter__()
@@ -123,6 +84,7 @@ class SeanoHtmlBuffer(object):
         For compatibility with ``with``.  We have nothing special to do ourselves, but we should forward this notice to
         each of the file buffers.
         '''
+        self.doc.__exit__(ertype, value, traceback)
         self.head.__exit__(ertype, value, traceback)
         self.css.__exit__(ertype, value, traceback)
         self.js.__exit__(ertype, value, traceback)
@@ -132,25 +94,25 @@ class SeanoHtmlBuffer(object):
         '''
         Writes the given ASCII or UTF-8 data to the generic ``<HEAD>`` section.
         '''
-        self.head.write(to_ascii(txt))
+        self.head.write(txt)
 
     def write_css(self, txt):
         '''
         Writes the given ASCII or UTF-8 data to the CSS section.
         '''
-        self.css.write(to_ascii(txt))
+        self.css.write(txt)
 
     def write_js(self, txt):
         '''
         Writes the given ASCII or UTF-8 data to the JavaScript section.
         '''
-        self.js.write(to_ascii(txt))
+        self.js.write(txt)
 
     def write_body(self, txt):
         '''
         Writes the given ASCII or UTF-8 data to the ``<BODY>`` section.
         '''
-        self.body.write(to_ascii(txt))
+        self.body.write(txt)
 
     def all_data(self):
         '''
@@ -159,24 +121,8 @@ class SeanoHtmlBuffer(object):
         The returned data is ALWAYS a unicode string, regardless of Python version.  This means it's a unicode object
         in Python 2, and a str object in Python 3.
         '''
-        self.head.seek(0, 0)
-        self.css.seek(0, 0)
-        self.js.seek(0, 0)
-        self.body.seek(0, 0)
-
-        return u''.join(map(to_unicode, [
-            self.doc_prefix,
-                self.head_prefix,
-                    self.head.read(),
-                    self.css_prefix,
-                        self.css.read(),
-                    self.css_suffix,
-                    self.js_prefix,
-                        self.js.read(),
-                    self.js_suffix,
-                self.head_suffix,
-                self.body_prefix,
-                    self.body.read(),
-                self.body_suffix,
-            self.doc_suffix,
-        ]))
+        return self.doc.udump(
+            insert_after_body=self.head.udump(
+                insert_after_body=self.css.udump() + self.js.udump()
+            ) + self.body.udump()
+        )
