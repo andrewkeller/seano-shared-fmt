@@ -180,10 +180,21 @@ def seano_copy_note_fields_to_releases(cmc, fields):
     if isinstance(fields, list):
         fields = {x: seano_field_mergetool_opaque for x in fields}
 
+    # For each release:
     for r in cmc.releases:
+
+        # For each field we're copying from notes to releases:
         for f in fields.keys():
-            values = [n[f] for n in r['notes'] if f in n]
+
+            # Because we're iterating over all releases (including backstories),
+            # we need to skip notes in each release that are copied from backstories:
+            notes = [n for n in r['notes'] if not n.get('is-copied-from-backstory')]
+
+            # For each note, grab the value for the current field:
+            values = [n[f] for n in notes if f in n]
             if values:
+
+                # Merge the new values into the release:
                 try:
                     r[f] = fields[f](
                         does_privileged_base_exist=f in r,
