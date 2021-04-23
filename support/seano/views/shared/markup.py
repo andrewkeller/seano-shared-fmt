@@ -42,18 +42,21 @@ way, you want to then create a Directive subclass and register it.  This
 registration process appears to be global, and may cause compatibility issues
 as complexity grows.  Iterate as needed.
 """
+import base64
 import re
 try:
     from StringIO import StringIO # correct on python 2.x; explodes on python 3.x
 except ImportError:
     # Must be python 3.x
     from io import StringIO
+import sys
 # ABK: Why can't pylint import these modules?
 import docutils.core #pylint: disable=E0401
 import docutils.nodes #pylint: disable=E0401
 import docutils.parsers.rst #pylint: disable=E0401
 import docutils.writers.html4css1 #pylint: disable=E0401
 from .html_buf import SeanoHtmlFragment
+from .mermaid import compile_mermaid_to_svg
 
 
 class SeanoMarkupException(Exception):
@@ -91,6 +94,8 @@ class SeanoMermaidDirective(docutils.parsers.rst.Directive):
     final_argument_whitespace = False
     option_spec = { # Dictionary of options accepted by this directive
         'alt': docutils.parsers.rst.directives.unchanged,
+        'min-width': docutils.parsers.rst.directives.unchanged,
+        'max-width': docutils.parsers.rst.directives.unchanged,
     }
 
     def run(self):
@@ -99,6 +104,10 @@ class SeanoMermaidDirective(docutils.parsers.rst.Directive):
         node['options'] = {}
         if 'alt' in self.options:
             node['alt'] = self.options['alt']
+        if 'min-width' in self.options:
+            node['min-width'] = self.options['min-width']
+        if 'max-width' in self.options:
+            node['max-width'] = self.options['max-width']
         return [node]
 
 # Actually register our Mermaid directive.  This is the line that makes the
@@ -118,19 +127,143 @@ class SeanoSingleFileHtmlTranslator(docutils.writers.html4css1.HTMLTranslator):
 
     def visit_SeanoMermaidNode(self, node):
 
-        alt = node.get('alt')
-        if alt:
-            alt = ' alt="{alt}"'.format(alt=self.encode(alt))
-        else:
-            alt = ''
+        # ABK: I don't have enough experience with HTML and JavaScript at the
+        #      moment to confidently embed the Mermaid compiler into a
+        #      single-file HTML document.  As a workaround, we pre-compile the
+        #      diagram into an SVG, and embed it into the document.  This is a
+        #      little sad, becuase:
+        #
+        #      - This circumvents support for dynamic type (i.e., accessibility)
+        #      - Booting up an ECMAScript runtime is *SLOW*.  And because mmdc
+        #        is a shell script that boots up Chromium (an ECMAScript runtime
+        #        implementation), runs the Mermaid compiler, and shuts down,
+        #        compiling Mermaid diagrams from Python is painfully slow.
+        #
+        #      In theory, compiling Mermaid diagrams at compile-time could be
+        #      nice, because we could have build failures for Mermaid syntax
+        #      errors at compile time.  However, for syntax errors, mmdc yields
+        #      a pretty "syntax error" graphic, and returns *success* (??).
+        #
+        #      Long story short, this implementation is probably good enough for
+        #      now, but there are a number of improvements centered around
+        #      performance, accessibility, and automation that I'd like to see
+        #      get implemented in the long term.
 
-        self.body.append('''<pre{alt} class="code literal-block">{code}'''.format(
-            alt=alt,
-            code=self.encode(node['code']),
-        ))
+        # Compile the Mermaid diagram into an SVG in both light mode and dark mode:
+        data = compile_mermaid_to_svg(node['code'], themes=['neutral', 'dark'])
+
+        # Base-64-encode the SVGs:
+        if sys.hexversion >= 0x3000000: # base64 wants bytes, not str
+            data = [x.encode('utf-8') for x in data]
+        data = [base64.b64encode(x) for x in data]
+        if sys.hexversion >= 0x3000000: # self wants str, not bytes
+            data = [x.decode('utf-8') for x in data]
+
+        # Wrap each Base-64-encoded SVG in the correct URL syntax:
+        data = ['data:image/svg+xml;base64,' + x for x in data]
+
+        # Formally name the light mode and dark mode images in this code:
+        lightdata, darkdata = data
+
+        # Fetch additional options:
+        alt = node.get('alt')
+        min_width = node.get('min-width')
+        max_width = node.get('max-width')
+
+        # Output to the page body our compiled SVG:
+        self.body.append(''.join([
+            '<picture>',
+                '<source srcset="{dark}" media="(prefers-color-scheme: dark)" />'.format(dark=darkdata),
+                '<img',
+                    ' src="{light}"'.format(light=lightdata),
+                    ' alt="{alt}"'.format(alt=self.encode(alt)) if alt else '',
+                    ' style="{css}"'.format(css=';'.join(filter(None, [
+                        'min-width:{min_width}'.format(min_width=min_width) if min_width else '',
+                        'max-width:{max_width}'.format(max_width=max_width) if max_width else '',
+                    ]))),
+                ' />',
+            '</picture>',
+        ]))
 
     def depart_SeanoMermaidNode(self, node):
-        self.body.append('</pre>')
+        pass
+
+
+_dl_elem_pattern = re.compile(r'''\s*</?d[ldt](?: [^>]*)?>\s*''', re.MULTILINE)
+def _seano_rst_to_some_html(txt, writer_class, translator_class):
+    '''
+    Compiles the given reStructuredText blob into an HTML snippet, sans the ``<html>`` and ``<body>`` elements.
+
+    Returns a SeanoHtmlFragment object containing the HTML fragment, and also recommended CSS/JS to make it work.
+
+    On soft errors, this function may return an empty ``SeanoHtmlFragment`` object.  This function never returns None.
+    '''
+    if not txt.strip(): return SeanoHtmlFragment(html='')
+    # Docutils likes to print warnings & errors to stderr & the compiled output.  We don't particularly want that
+    # here...  What we'd like ideally is to capture any warnings and errors, and explicitly report them to the
+    # caller.  If this is being used within Waf, we'd ideally like to trigger a build failure (and never have
+    # surprise output in the rendered HTML).
+    #
+    # Fortunately, Docutils lets us do this.
+    #
+    # More info on settings overrides here:
+    #   https://sourceforge.net/p/docutils/mailman/message/30882883/
+    #   https://github.com/pypa/readme_renderer/blob/master/readme_renderer/rst.py
+    #
+    # Documentation on how to use custom translator objects:
+    #   https://gist.github.com/mastbaum/2655700
+    #
+    error_accumulator = StringIO()
+    writer = writer_class()
+    writer.translator_class = translator_class
+    parts = docutils.core.publish_parts(txt, writer=writer, settings_overrides={
+        'warning_stream': error_accumulator,
+    })
+
+    # Artificially fail if any errors or warnings were reported
+    errors = error_accumulator.getvalue().splitlines()
+    error_accumulator.close() # ABK: Not sure if this is required, but most of the docs have it
+    if errors:
+        # ABK: Some errors include the bad markup, and some don't.  Not sure what the pattern is yet.
+        #      For now, for all errors, append the original full markup, with line numbers.
+        with_line_numbers = []
+        for line in txt.splitlines():
+            with_line_numbers.append('%4d    %s' % (len(with_line_numbers) + 1, line))
+        errors.append('    %s' % ('\n    '.join(with_line_numbers)))
+        raise SeanoMarkupException('\n'.join(errors))
+
+    # No errors; return the rendered HTML fragment
+    html = parts['fragment']
+    css = parts['stylesheet']
+
+    # Docutils likes to insert <dl>, <dd>, and <dt> elements.  Long term, it would be nice to know why (screen readers
+    # come to mind).  For now, those elements are causing problems with styling.  Yank them out.
+    html = _dl_elem_pattern.sub('', html)
+
+    # The CSS that Docutils returns is wrapped inside a <style> element.  We don't want that here.  Yank it out.
+    css_prefix = '<style type="text/css">\n\n'
+    if not css.startswith(css_prefix):
+        raise SeanoMarkupException('CSS returned from the reStructuredText compiler has an unexpected prefix: %s', css)
+    css = css[len(css_prefix):]
+
+    css_suffix = '\n\n</style>\n'
+    if not css.endswith(css_suffix):
+        raise SeanoMarkupException('CSS returned from the reStructuredText compiler has an unexpected suffix: %s', css)
+    css = css[:len(css) - len(css_suffix)]
+
+    # The default Pygments CSS does not work in dark mode; let's fix that:
+    css = css + '''
+
+@media (prefers-color-scheme: dark) {
+    /* Custom overrides for Pygments so that it doesn't suck in dark mode */
+    pre.code .ln { color: lightgrey; } /* line numbers */
+    pre.code .comment, code .comment { color: rgb(127, 139, 151) }
+    pre.code .keyword, code .keyword { color: rgb(236, 236, 22) }
+    pre.code .literal.string, code .literal.string { color: rgb(217, 200, 124) }
+    pre.code .name.builtin, code .name.builtin { color: rgb(255, 60, 255) }
+}'''
+
+    return SeanoHtmlFragment(html=html, css=css)
 
 
 def rst_to_html(txt):
