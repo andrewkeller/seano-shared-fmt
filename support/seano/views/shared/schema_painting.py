@@ -56,11 +56,20 @@ def seano_paint_release_risk_levels(cmc):
     calculating the aggregate risk level for each release based on data found in notes.
 
     The releases list is edited in-place.
+
+    This function is conceptually similar to seano_copy_note_fields_to_releases(),
+    except that there is a *default* value when the 'risk' key does not exist in
+    any note in the release.
     """
     for release in cmc.releases:
         if 'risk' in release:
             continue
-        levels = [x.get('risk') for x in release['notes']]
+
+        # Because we're iterating over all releases (including backstories),
+        # we need to skip notes in each release that are copied from backstories:
+        notes = [n for n in release['notes'] if not n.get('is-copied-from-backstory')]
+
+        levels = [x.get('risk') for x in notes]
         for level in ['high', 'medium', 'low']:
             if level in levels:
                 release['risk'] = level
