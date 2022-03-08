@@ -204,8 +204,9 @@ def seano_copy_note_fields_to_releases(cmc, fields):
                 except SeanoSchemaPaintingException as e:
                     # We are not going to swallow this exception; we will let it unwind the stack.
                     # However, we would like to improve the error message before it goes.
-                    msg = e.args[0] + os.linesep + os.linesep + \
-'''This happened because multiple notes within the {release} release
+                    msg = e.args[0] + '''
+
+This happened because multiple notes within the {release} release
 tried to set a different new value for {field},
 and seano isn't smart enough to reconcile the differences and save a
 provably correct merged value on the {release} release.  To workaround
@@ -275,8 +276,9 @@ def seano_propagate_sticky_release_fields(cmc, fields):
                 except SeanoSchemaPaintingException as e:
                     # We are not going to swallow this exception; we will let it unwind the stack.
                     # However, we would like to improve the error message before it goes.
-                    msg = e.args[0] + os.linesep + os.linesep + \
-'''This happened because multiple ancestors of the {release} release
+                    msg = e.args[0] + '''
+
+This happened because multiple ancestors of the {release} release
 have changed the value of {field} to different values,
 and seano isn't smart enough to reconcile the differences and save a
 provably correct merged value on the {release} release.  The easiest
