@@ -97,6 +97,12 @@ def _compile_mermaid_on_disk(infile, outfile, theme):
     #      fairly well isolated, and implementation details are, for the
     #      most part, kept secret from other modules.  (The only exception
     #      is the exception raised below)
+    #
+    # ABK: The above comment is now out-of-date.  The Icebox can now be
+    #      used to download and prepare the Mermaid compiler.  However,
+    #      I do find myself enjoying that this code is so lazy -- it
+    #      never gets invoked if the project doesn't need it.  Downloading
+    #      mmdc at configure time would circumvent this advantage.
 
     cwd = os.environ.get('ZARF_MERMAID_NPM_CACHE_DIR')
     mmdc_exec = os.path.join('.', 'node_modules', '.bin',
