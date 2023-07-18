@@ -126,7 +126,7 @@ def _compile_mermaid_on_disk(infile, outfile, theme):
                                     stderr=subprocess.STDOUT)
             stdout, _ = proc.communicate()
             if proc.returncode:
-                raise Exception('Unable to obtain mmdc: ' + stdout)
+                raise Exception('Unable to obtain mmdc: ' + stdout.decode('utf-8'))
 
     cmd = [
         # ABK: Why does this command have to be an absolute path on Windows,
