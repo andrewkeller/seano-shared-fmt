@@ -1,0 +1,57 @@
+---
+risk: low
+
+employee-short-loc-hlist-rst:
+  en-US:
+  - Move Mermaid's compiler out of Zarf and into the browser:
+    - Node & NPM is no longer needed for Mermaid diagrams in ``seano``
+    - Mermaid diagrams are now compiled on-the-fly when displayed
+
+employee-technical-loc-rst:
+  en-US: |
+    Zarf's Mermaid compiler depended heavily on DocUtils giving us access to
+    the DOM serialization.  This is fine if we're using DocUtils for parsing
+    all kinds of markup, but alas, we won't be using it for Markdown.
+
+    To make it easier for the ``seano`` views to support Markdown, Zarf's
+    implementation of Mermaid diagrams no longer pre-compiles them into
+    images during the compile phase, and instead defers the compilation to
+    run time in the browser, via Mermaid's official JS-based compiler.
+
+    As a consequence of this change, Node and NPM are no longer needed in
+    order to have Mermaid diagrams in ``seano`` notes.
+
+    Some of the new JS being used is part of some fairly new APIs, and it's
+    likely that older browsers (such as IE) are probably not going to work.
+    Iterate as necessary.
+
+    No changes are required to adopt this change in any project.
+
+    This change has no risk to customers because we don't ship any Mermaid
+    diagrams to customers.
+
+qa-technical-loc-rst:
+  en-US: |
+    Make sure the Mermaid diagram below displays in at least Chrome, Edge,
+    Firefox, and Safari:
+
+    .. mermaid::
+
+        flowchart LR
+        A[Christmas] -->|Get money| B(Go shopping)
+        B --> C{Let me think}
+        C -->|One| D[Laptop]
+        C -->|Two| E[iPhone]
+        C -->|Three| F[fa:fa-car Car]
+
+    Permutations:
+
+    #.  Should work on at least the latest versions of Chrome, Edge, Firefox,
+        and Safari.  Some relatively new browser APIs are being used in this
+        work, so it's possible that something might break in older browsers.
+        Because this isn't customer-facing, it's okay to only support new-ish
+        browsers.
+
+    #.  Should automatically choose the theme based on whether or not Dark Mode
+        is enabled.  *(Note: you need to refresh the browser for Dark Mode
+        changes to take effect)*

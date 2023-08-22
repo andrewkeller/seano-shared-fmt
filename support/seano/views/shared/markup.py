@@ -43,6 +43,7 @@ registration process appears to be global, and may cause compatibility issues
 as complexity grows.  Iterate as needed.
 """
 import base64
+import json
 import re
 try:
     from StringIO import StringIO # correct on python 2.x; explodes on python 3.x
@@ -56,7 +57,6 @@ import docutils.nodes #pylint: disable=E0401
 import docutils.parsers.rst #pylint: disable=E0401
 import docutils.writers.html4css1 #pylint: disable=E0401
 from .html_buf import SeanoHtmlFragment
-from .mermaid import compile_mermaid_to_svg
 
 
 class SeanoMarkupException(Exception):
@@ -115,6 +115,8 @@ class SeanoMermaidDirective(docutils.parsers.rst.Directive):
 docutils.parsers.rst.directives.register_directive('mermaid', SeanoMermaidDirective)
 
 
+_MERMAID_AUTO_INIT_KEY = 0
+
 class SeanoSingleFileHtmlTranslator(docutils.writers.html4css1.HTMLTranslator):
     '''
     This is a DocUtils Translator subclass that serializes a Node tree into
@@ -126,64 +128,35 @@ class SeanoSingleFileHtmlTranslator(docutils.writers.html4css1.HTMLTranslator):
     '''
 
     def visit_SeanoMermaidNode(self, node):
+        # ABK: Mermaid doesn't properly calculate the size of elements that are
+        # not visible.  To workaround, don't compile Mermaid diagrams until they
+        # are visible.  To implement this without requiring infrastructure
+        # outside of this method, we're going to give every Mermaid diagram its
+        # own unique identifier, and then use the `IntersectionObserver` API to
+        # detect when the element becomes visible, and when that happens, tell
+        # Mermaid to compile that specific diagram.
+        global _MERMAID_AUTO_INIT_KEY
+        _MERMAID_AUTO_INIT_KEY = _MERMAID_AUTO_INIT_KEY + 1
+        key = 'mermaid-%d' % (_MERMAID_AUTO_INIT_KEY,)
 
-        # ABK: I don't have enough experience with HTML and JavaScript at the
-        #      moment to confidently embed the Mermaid compiler into a
-        #      single-file HTML document.  As a workaround, we pre-compile the
-        #      diagram into an SVG, and embed it into the document.  This is a
-        #      little sad, becuase:
-        #
-        #      - This circumvents support for dynamic type (i.e., accessibility)
-        #      - Booting up an ECMAScript runtime is *SLOW*.  And because mmdc
-        #        is a shell script that boots up Chromium (an ECMAScript runtime
-        #        implementation), runs the Mermaid compiler, and shuts down,
-        #        compiling Mermaid diagrams from Python is painfully slow.
-        #
-        #      In theory, compiling Mermaid diagrams at compile-time could be
-        #      nice, because we could have build failures for Mermaid syntax
-        #      errors at compile time.  However, for syntax errors, mmdc yields
-        #      a pretty "syntax error" graphic, and returns *success* (??).
-        #
-        #      Long story short, this implementation is probably good enough for
-        #      now, but there are a number of improvements centered around
-        #      performance, accessibility, and automation that I'd like to see
-        #      get implemented in the long term.
-
-        # Compile the Mermaid diagram into an SVG in both light mode and dark mode:
-        data = compile_mermaid_to_svg(node['code'], themes=['neutral', 'dark'])
-
-        # Base-64-encode the SVGs:
-        if sys.hexversion >= 0x3000000: # base64 wants bytes, not str
-            data = [x.encode('utf-8') for x in data]
-        data = [base64.b64encode(x) for x in data]
-        if sys.hexversion >= 0x3000000: # self wants str, not bytes
-            data = [x.decode('utf-8') for x in data]
-
-        # Wrap each Base-64-encoded SVG in the correct URL syntax:
-        data = ['data:image/svg+xml;base64,' + x for x in data]
-
-        # Formally name the light mode and dark mode images in this code:
-        lightdata, darkdata = data
-
-        # Fetch additional options:
-        alt = node.get('alt')
-        min_width = node.get('min-width')
-        max_width = node.get('max-width')
-
-        # Output to the page body our compiled SVG:
-        self.body.append(''.join([
-            '<picture>',
-                '<source srcset="{dark}" media="(prefers-color-scheme: dark)" />'.format(dark=darkdata),
-                '<img',
-                    ' src="{light}"'.format(light=lightdata),
-                    ' alt="{alt}"'.format(alt=self.encode(alt)) if alt else '',
-                    ' style="{css}"'.format(css=';'.join(filter(None, [
-                        'min-width:{min_width}'.format(min_width=min_width) if min_width else '',
-                        'max-width:{max_width}'.format(max_width=max_width) if max_width else '',
-                    ]))),
-                ' />',
-            '</picture>',
-        ]))
+        self.body.extend([
+            '<pre class="mermaid" id="%s">' % (key,),
+            node['code'],
+            '</pre>',
+            '''<script type="module">''',
+                '''import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';''',
+                '''const prefersDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;''',
+                '''mermaid.initialize({'startOnLoad': false, 'securityLevel': 'antiscript', 'theme': prefersDarkMode ? 'dark' : 'neutral'});''',
+                '''new IntersectionObserver((entries, observer) => {''',
+                    '''entries.forEach(entry => {''',
+                        '''if (entry.intersectionRatio > 0) {''',
+                            '''observer.disconnect();''',
+                            '''mermaid.run(%s);''' % (json.dumps({'querySelector': '#' + key}),),
+                        '''}''',
+                    '''});''',
+                '''}).observe(document.getElementById('%s'));''' % (key,),
+            '''</script>''',
+        ])
 
     def depart_SeanoMermaidNode(self, node):
         pass
