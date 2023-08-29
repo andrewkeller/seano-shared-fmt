@@ -56,6 +56,8 @@ import docutils.core #pylint: disable=E0401
 import docutils.nodes #pylint: disable=E0401
 import docutils.parsers.rst #pylint: disable=E0401
 import docutils.writers.html4css1 #pylint: disable=E0401
+import html
+import markdown
 from .html_buf import SeanoHtmlFragment
 
 
@@ -239,30 +241,107 @@ def _seano_rst_to_some_html(txt, writer_class, translator_class):
     return SeanoHtmlFragment(html=html, css=css)
 
 
-def rst_to_html(txt):
-    return _seano_rst_to_some_html(txt,
-                                  writer_class=docutils.writers.html4css1.Writer,
-                                  translator_class=SeanoSingleFileHtmlTranslator)
+class SeanoMarkup(object):
+    """
+    Base class for encapsulating some rich text markup that can self-convert to
+    various output formats.  Includes some stock shared code to support some of
+    the common types that are, under the hoods, derivatives, rather than
+    distinct types, allowing the real subclasses to not need to reimplement
+    everything all the time.
+    """
 
+    def __init__(self, payload, localization=None, tags=None):
+        self.payload = payload
+        self.localization = localization
+        self.tags = tags or []
 
-_rst_line_pattern = re.compile(r'''^<p[^>]*>(?P<contents>.*)</p>\s*$''', re.MULTILINE)
-def rst_line_to_html(txt):
-    '''
-    Returns the HTML equivalent of the given tiny reStructuredText snippet, sans a top-level element.
+    def deep_copy(self):
+        return self.__class__(payload=self.payload, localization=self.localization, tags=self.tags)
 
-    The returned result is encapsulated in a ``SeanoHtmlFragment`` object.
+    def __bool__(self): return bool(self.payload)
+    def __nonzero__(self): return bool(self.payload)
 
-    On soft errors, this function may return an empty ``SeanoHtmlFragment`` object.  This function never
-    returns ``None``.
+    def __eq__(self, other): return \
+        self.__class__ == other.__class__ and \
+        self.payload == other.payload and \
+        self.localization == other.localization and \
+        self.tags == other.tags
 
-    The algorithm that strips the top-level element off of the return value is fairly stupid; try to
-    not pass unknown garbage into this function.
-    '''
-    result = rst_to_html(txt)
-    if not result:
+    def __str__(self): return repr(self.payload)
+    def __repr__(self): return str(self)
+
+    _line_pattern = re.compile(r'''^<p[^>]*>(?P<contents>.*)</p>\s*$''', re.MULTILINE | re.DOTALL)
+    def toHtmlLine(self):
+        '''
+        Returns the same as `toHtmlBlock()`, except sans a top-level element.
+
+        On soft errors, this function may return an empty `SeanoHtmlFragment`
+        object.  This function never returns `None`.
+
+        The algorithm that strips the top-level element off of the return value
+        is fairly stupid; try to not pass unknown garbage into this function.
+        '''
+        result = self.toHtmlBlock()
+        if not result:
+            return result
+        m = self._line_pattern.match(result.html)
+        if not m:
+            raise SeanoMarkupException('Compiled HTML does not look like a single line: %s' % (result.html,))
+        result.html = m.group('contents').strip()
         return result
-    m = _rst_line_pattern.match(result.html)
-    if not m:
-        raise SeanoMarkupException('Compiled HTML does not look like a single line: %s' % (txt,))
-    result.html = m.group('contents')
-    return result
+
+    # ABK: toHtmlBlock() is the main function that subclasses need to implement
+
+
+class SeanoPlainText(SeanoMarkup):
+    def toHtmlLine(self):
+        return SeanoHtmlFragment(html=html.escape(self.payload))
+
+    def toHtmlBlock(self):
+        result = self.toHtmlLine()
+        result.html = '<p>' + result.html + '</p>'
+        return result
+
+
+class SeanoFalseyMarkup(SeanoMarkup):
+    def __init__(self, explanation=''):
+        self.explanation = explanation
+
+    def __eq__(self, other): return \
+        self.__class__ == other.__class__ and \
+        self.explanation == other.explanation
+
+    def deep_copy(self): return SeanoFalseyMarkup(explanation=self.explanation)
+    def __bool__(self): return False
+    def __nonzero__(self): return False
+    def __str__(self): return '<FalseyMarkup>'
+    def toHtmlLine(self): return SeanoHtmlFragment(html='')
+    def toHtmlBlock(self): return SeanoHtmlFragment(html='')
+
+
+class SeanoReStructuredText(SeanoMarkup):
+    def __str__(self): return 'RST(%s)' % (super().__str__())
+
+    def toHtmlBlock(self):
+        return _seano_rst_to_some_html(self.payload,
+                                      writer_class=docutils.writers.html4css1.Writer,
+                                      translator_class=SeanoSingleFileHtmlTranslator)
+
+
+class SeanoMarkdown(SeanoMarkup):
+    def __str__(self): return 'MD(%s)' % (super().__str__())
+
+    def toHtmlBlock(self):
+        return SeanoHtmlFragment(
+            html=markdown.markdown(
+                self.payload,
+                extensions=['pymdownx.superfences', 'pymdownx.highlight'],
+            ),
+        )
+
+
+SUPPORTED_MARKUP = {
+    'rst': SeanoReStructuredText,
+    'md': SeanoMarkdown,
+    '': SeanoPlainText,
+}

@@ -4,8 +4,7 @@ support/seano/views/shared/components.py
 Shared code that renders certain common view components.
 """
 import itertools
-from .hlist import seano_cascade_hlist
-from .markup import rst_line_to_html
+from .hlist import SeanoUnlocalizedHListIterNode
 from .links import get_ticket_display_name
 
 
@@ -14,68 +13,90 @@ def seano_render_html_ticket(url):
     return '<span style="font-size:75%">' + ticket + '</span>'
 
 
-def seano_html_note_list_line_formatter_simple(node, notes):  #pylint: disable=W0613
-    return rst_line_to_html(node['head']).html
+def seano_html_hlist_blob_formatter_simple(node):
+    return node.element.toHtmlBlock().html
 
 
-def seano_html_note_list_line_formatter_text_with_tickets(node, notes):  #pylint: disable=C0103
-    result = seano_html_note_list_line_formatter_simple(node, notes)
+def seano_html_hlist_line_formatter_simple(node):
+    return node.element.toHtmlLine().html
 
-    if node.get('already_printed_tickets', False):
-        return result
 
-    # To minimize UX noise, we don't want to print tickets on literally every line.
-    # As an easy solution, only print tickets on the first line in a note tree where
-    # that line and all sub-lines have the same ticket list.
+def seano_html_hlist_line_formatter_text_with_tickets(notes, line_formatter=None):  #pylint: disable=C0103
+    line_formatter = line_formatter or seano_html_hlist_line_formatter_simple
+    def formatter(node):
+        result = line_formatter(node)
 
-    queue = list(node['children']) # Explicitly clone the children list so we don't corrupt it
-    while queue:
-        if queue[0]['tags'] != node['tags']:
-            # Defer printing of tickets until we get to a deeper sub-line.
+        # To minimize UX noise, we don't want to print tickets on literally every line.
+        # As an easy solution, only print tickets on the first line in a note tree where
+        # that line and all sub-lines have the same ticket list.
+
+        # Has one of our parents already printed?
+        if getattr(node, 'is_printed', False):
+            # One of our parents was already printed.  Bail.
             return result
-        queue.extend(queue.pop(0)['children'])
 
-    # We've decided to print tickets on this line.  Silence tickets on all sub-lines:
+        # None of our parents have printed.  Do all of our children have the
+        # same tickets as us?
 
-    queue = list(node['children']) # Explicitly clone the children list so we don't corrupt it
-    while queue:
-        queue[0]['already_printed_tickets'] = True
-        queue.extend(queue.pop(0)['children'])
+        def get_tickets(note_ids):
+            return itertools.chain(*[note.get('tickets') or [] for note in notes if note['id'] in note_ids])
+        tickets = list(get_tickets(note_ids=node.element.tags))
+        tickets_set = set(tickets)
 
-    # Gather all tickets:
-    tickets = itertools.chain(*[notes[x].get('tickets') or [] for x in node['tags']])
+        for child in node.walk():
+            if tickets_set != set(get_tickets(child.note_ids)):
+                # One of our children has a different note set than us.
+                # Defer printing of tickets until we get to a deeper sub-line.
+                return result
 
-    # Remove duplicates without changing sort order:
-    def dedup(lst):
-        seen = set()
-        for x in lst:
-            if x not in seen:
-                seen.add(x)
-                yield x
-    tickets = dedup(tickets)
+        # We've decided to print tickets on this line.  Silence tickets on all sub-lines:
+        def silence(x):
+            x.is_printed = True
+            for child in x.children:
+                silence(child)
+        silence(node)
 
-    # Compile tickets into HTML:
-    tickets = [seano_render_html_ticket(x) for x in tickets]
+        # Remove duplicate tickets without changing sort order:
+        def dedup(lst):
+            seen = set()
+            for x in lst:
+                if x not in seen:
+                    seen.add(x)
+                    yield x
+        tickets = dedup(tickets)
 
-    # Return entire note line, with all of the tickets:
-    return ' '.join([result] + tickets)
+        # Compile tickets into HTML:
+        tickets = [seano_render_html_ticket(x) for x in tickets]
+
+        # Return entire note line, with all of the tickets:
+        return ' '.join([result] + tickets)
+
+    return formatter
 
 
-def seano_render_html_note_list(notes, key, line_formatter=None):
+def seano_render_html_hlist(hlist, is_blob_field=False, block_formatter=None, line_formatter=None):
 
-    if not line_formatter:
-        line_formatter = seano_html_note_list_line_formatter_simple
+    block_formatter = block_formatter or seano_html_hlist_blob_formatter_simple
+    line_formatter = line_formatter or seano_html_hlist_line_formatter_simple
 
-    def render_lst(lst):
+    def _run(node):
 
-        result = [
-            '<li>' + line_formatter(n, notes) + render_lst(n['children']) + '</li>'
-            for n in lst
-        ]
+        if node.level > 0:
+            yield '<li>'
+            yield line_formatter(node=node)
+        elif node.element:
+            yield block_formatter(node=node)
 
-        if not result:
-            return ''
+        if node.children:
+            if node.level >= 0:
+                yield '<ul>'
+            for child in node.children:
+                for hunk in _run(node=child):
+                    yield hunk
+            if node.level >= 0:
+                yield '</ul>'
 
-        return '<ul>' + ''.join(result) + '</ul>'
+        if node.level > 0:
+            yield '</li>'
 
-    return render_lst(seano_cascade_hlist(notes, key))
+    return ''.join(_run(node=SeanoUnlocalizedHListIterNode(node=hlist, level=-1 if is_blob_field else 0)))
